@@ -4,7 +4,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
+    Image as RLImage,
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -41,6 +42,15 @@ def _styles():
         "footer": ParagraphStyle("footer", fontSize=7.5, fontName="Helvetica",
                                   textColor=colors.HexColor("#666666"), alignment=TA_CENTER),
     }
+
+
+def _thumb(path: str, s, w=2.8 * cm, h=2.8 * cm):
+    if path and os.path.exists(path):
+        try:
+            return RLImage(path, width=w, height=h, kind="proportional")
+        except Exception:
+            return Paragraph("-", s["center"])
+    return Paragraph("-", s["center"])
 
 
 def _section_header(title: str, s) -> Table:
@@ -116,23 +126,27 @@ def _detail_table(detail: list, s) -> Table:
         Paragraph("Aktivitas / Kegiatan Lapangan", s["bold"]),
         Paragraph("Lokasi", s["bold"]),
         Paragraph("Status", s["bold"]),
+        Paragraph("Dokumentasi", s["bold"]),
     ]
-    cw = [CONTENT_W * 0.12, CONTENT_W * 0.12, CONTENT_W * 0.44, CONTENT_W * 0.18, CONTENT_W * 0.14]
+    cw = [
+        CONTENT_W * 0.09, CONTENT_W * 0.09, CONTENT_W * 0.32,
+        CONTENT_W * 0.15, CONTENT_W * 0.11, CONTENT_W * 0.24,
+    ]
     rows = [headers]
     for i, item in enumerate(detail):
-        bg = ROW_ALT if i % 2 == 0 else WHITE
         rows.append([
             Paragraph(item.get("jam_mulai", ""), s["small"]),
             Paragraph(item.get("jam_selesai", ""), s["small"]),
             Paragraph(item.get("aktivitas", ""), s["small"]),
             Paragraph(item.get("lokasi", ""), s["small"]),
             Paragraph(item.get("status", ""), s["small"]),
+            _thumb(item.get("foto", ""), s),
         ])
 
     if len(rows) == 1:
         rows.append([Paragraph("-", s["small"]), Paragraph("", s["small"]),
                      Paragraph("", s["small"]), Paragraph("", s["small"]),
-                     Paragraph("", s["small"])])
+                     Paragraph("", s["small"]), Paragraph("-", s["center"])])
 
     tbl = Table(rows, colWidths=cw)
     style = [
@@ -159,21 +173,28 @@ def _kendala_table(kendala: list, s) -> Table:
         Paragraph("Kendala / Hambatan", s["bold"]),
         Paragraph("Dampak", s["bold"]),
         Paragraph("Tindakan Mitigasi", s["bold"]),
+        Paragraph("Dok. Sebelum", s["bold"]),
+        Paragraph("Dok. Setelah", s["bold"]),
     ]
-    cw = [CONTENT_W * 0.07, CONTENT_W * 0.31, CONTENT_W * 0.31, CONTENT_W * 0.31]
+    cw = [
+        CONTENT_W * 0.05, CONTENT_W * 0.22, CONTENT_W * 0.18,
+        CONTENT_W * 0.21, CONTENT_W * 0.17, CONTENT_W * 0.17,
+    ]
     rows = [headers]
     for i, item in enumerate(kendala):
-        bg = ROW_ALT if i % 2 == 0 else WHITE
         rows.append([
             Paragraph(str(i + 1), s["center"]),
             Paragraph(item.get("kendala", ""), s["small"]),
             Paragraph(item.get("dampak", ""), s["small"]),
             Paragraph(item.get("mitigasi", ""), s["small"]),
+            _thumb(item.get("foto_before", ""), s, w=2.3 * cm, h=2.3 * cm),
+            _thumb(item.get("foto_after", ""), s, w=2.3 * cm, h=2.3 * cm),
         ])
 
     if len(rows) == 1:
         rows.append([Paragraph("1", s["center"]), Paragraph("-", s["small"]),
-                     Paragraph("-", s["small"]), Paragraph("-", s["small"])])
+                     Paragraph("-", s["small"]), Paragraph("-", s["small"]),
+                     Paragraph("-", s["center"]), Paragraph("-", s["center"])])
 
     tbl = Table(rows, colWidths=cw)
     style = [

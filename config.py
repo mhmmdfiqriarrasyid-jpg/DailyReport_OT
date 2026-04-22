@@ -8,6 +8,7 @@ ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Jayapura")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "reports.db")
 OUTPUT_DIR = "outputs"
+PHOTO_DIR = os.getenv("PHOTO_DIR", "outputs/photos")
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN belum diset di file .env")
