@@ -84,6 +84,52 @@ def get_reports_by_week(start_date: date, end_date: date) -> list[dict]:
     return reports
 
 
+def get_all_reports(limit: int = 50) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM daily_reports
+        ORDER BY tanggal DESC, id DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    reports = []
+    for row in rows:
+        r = dict(row)
+        for field in ("ringkasan", "detail_kegiatan", "kendala", "koordinasi", "rencana_besok"):
+            r[field] = json.loads(r[field])
+        reports.append(r)
+    return reports
+
+
+def get_report_by_id(report_id: int) -> dict | None:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM daily_reports WHERE id = ?", (report_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    r = dict(row)
+    for field in ("ringkasan", "detail_kegiatan", "kendala", "koordinasi", "rencana_besok"):
+        r[field] = json.loads(r[field])
+    return r
+
+
+def delete_report(report_id: int) -> bool:
+    conn = get_conn()
+    cur = conn.execute("DELETE FROM daily_reports WHERE id = ?", (report_id,))
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+
+def count_reports() -> int:
+    conn = get_conn()
+    row = conn.execute("SELECT COUNT(*) as c FROM daily_reports").fetchone()
+    conn.close()
+    return row["c"]
+
+
 def get_current_week_reports() -> list[dict]:
     today = date.today()
     monday = today - timedelta(days=today.weekday())

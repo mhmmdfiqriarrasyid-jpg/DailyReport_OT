@@ -3,6 +3,7 @@ from telegram.ext import Application
 from config import BOT_TOKEN
 from database.db import init_db
 from bot.handlers import build_conversation_handler
+from bot.commands import register_commands
 from scheduler.scheduler import start_scheduler
 
 logging.basicConfig(
@@ -17,6 +18,7 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(build_conversation_handler())
+    register_commands(app)
 
     start_scheduler(app)
 
