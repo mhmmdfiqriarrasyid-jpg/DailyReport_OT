@@ -100,12 +100,58 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "*📖 Perintah yang tersedia:*\n\n"
         "/laporan — Buat laporan harian baru\n"
         "/list — Lihat semua laporan yang tersimpan\n"
+        "/export `<id>` — Unduh ulang PDF laporan berdasarkan ID\n"
         "/hapus `<id>` — Hapus laporan berdasarkan ID\n"
         "/weekly — Generate laporan mingguan sekarang\n"
+        "/back — Kembali ke pertanyaan sebelumnya (saat mengisi laporan)\n"
         "/cancel — Batalkan laporan yang sedang diisi\n"
         "/help — Tampilkan bantuan ini"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
+
+
+async def cmd_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Generate ulang PDF laporan berdasarkan ID."""
+    if not _guard(update):
+        return
+
+    args = ctx.args
+    if not args:
+        await update.message.reply_text(
+            "Gunakan: `/export <id>`\n\nContoh: `/export 3`\n\nLihat daftar ID dengan `/list`.",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        report_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("ID harus angka. Contoh: `/export 3`", parse_mode="Markdown")
+        return
+
+    report = get_report_by_id(report_id)
+    if not report:
+        await update.message.reply_text(
+            f"❌ Laporan dengan ID *#{report_id}* tidak ditemukan.",
+            parse_mode="Markdown",
+        )
+        return
+
+    from config import OUTPUT_DIR
+    from reports.daily_pdf import generate_daily_pdf
+
+    await update.message.reply_text(f"Membuat ulang PDF untuk laporan *#{report_id}*...",
+                                    parse_mode="Markdown")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    path = generate_daily_pdf(report, OUTPUT_DIR)
+
+    d = date.fromisoformat(report["tanggal"])
+    with open(path, "rb") as f:
+        await update.message.reply_document(
+            document=f,
+            filename=os.path.basename(path),
+            caption=f"Laporan Harian #{report_id} — {d.strftime('%d/%m/%Y')}",
+        )
 
 
 async def cmd_weekly(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -135,5 +181,6 @@ async def cmd_weekly(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def register_commands(app):
     app.add_handler(CommandHandler("list", cmd_list))
     app.add_handler(CommandHandler("hapus", cmd_hapus))
+    app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("weekly", cmd_weekly))

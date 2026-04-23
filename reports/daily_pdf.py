@@ -173,12 +173,12 @@ def _kendala_table(kendala: list, s) -> Table:
         Paragraph("Kendala / Hambatan", s["bold"]),
         Paragraph("Dampak", s["bold"]),
         Paragraph("Tindakan Mitigasi", s["bold"]),
-        Paragraph("Dok. Sebelum", s["bold"]),
-        Paragraph("Dok. Setelah", s["bold"]),
+        Paragraph("Dokumen Sebelum", s["bold"]),
+        Paragraph("Dokumen Sesudah", s["bold"]),
     ]
     cw = [
-        CONTENT_W * 0.05, CONTENT_W * 0.22, CONTENT_W * 0.18,
-        CONTENT_W * 0.21, CONTENT_W * 0.17, CONTENT_W * 0.17,
+        CONTENT_W * 0.05, CONTENT_W * 0.20, CONTENT_W * 0.16,
+        CONTENT_W * 0.19, CONTENT_W * 0.20, CONTENT_W * 0.20,
     ]
     rows = [headers]
     for i, item in enumerate(kendala):
@@ -202,6 +202,7 @@ def _kendala_table(kendala: list, s) -> Table:
         ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
         ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (4, 1), (5, -1), "CENTER"),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),

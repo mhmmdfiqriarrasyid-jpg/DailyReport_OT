@@ -1,7 +1,9 @@
 import os
+import copy
 import logging
 import uuid
 from datetime import date
+from PIL import Image, ImageOps
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ContextTypes,
@@ -47,6 +49,13 @@ def _init_data(ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data.setdefault("koordinasi", [])
     ctx.user_data.setdefault("rencana_besok", [])
     ctx.user_data.setdefault("_tmp", {})
+    ctx.user_data.setdefault("_history", [])
+
+
+def _snapshot(ctx: ContextTypes.DEFAULT_TYPE, state: int):
+    hist = ctx.user_data.setdefault("_history", [])
+    snap = {k: copy.deepcopy(v) for k, v in ctx.user_data.items() if k != "_history"}
+    hist.append((state, snap))
 
 
 async def _save_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE, label: str) -> str:
@@ -57,6 +66,12 @@ async def _save_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE, label: str
     filename = f"{date.today().isoformat()}_{label}_{uuid.uuid4().hex[:8]}.jpg"
     path = os.path.join(PHOTO_DIR, filename)
     await file.download_to_drive(path)
+    try:
+        with Image.open(path) as img:
+            fixed = ImageOps.exif_transpose(img)
+            fixed.convert("RGB").save(path, "JPEG", quality=85)
+    except Exception as e:
+        logger.warning(f"EXIF fix gagal untuk {path}: {e}")
     return path
 
 
@@ -481,49 +496,273 @@ async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# ── Prompt helpers untuk /back ────────────────────────────
+async def _prompt_nama(update, ctx):
+    today = date.today()
+    await update.message.reply_text(
+        f"Tanggal hari ini: *{today.strftime('%d/%m/%Y')}* ({ctx.user_data.get('hari','')})\n\n"
+        f"Siapa nama PIC / Pelapor hari ini?",
+        parse_mode="Markdown", reply_markup=ReplyKeyboardRemove(),
+    )
+
+async def _prompt_divisi(update, ctx):
+    await update.message.reply_text("Divisi?", reply_markup=_kb(KB_DIVISI))
+
+async def _prompt_lokasi(update, ctx):
+    await update.message.reply_text("Lokasi / Site?", reply_markup=_kb(KB_LOKASI))
+
+async def _prompt_lokasi_custom(update, ctx):
+    await update.message.reply_text("Ketik nama lokasi / site:", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_shift(update, ctx):
+    await update.message.reply_text("Shift / Jam Kerja? (ketik `-` jika tidak ada)",
+                                    parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_cuaca(update, ctx):
+    await update.message.reply_text("Cuaca hari ini?", reply_markup=_kb(KB_CUACA))
+
+async def _prompt_kondisi(update, ctx):
+    await update.message.reply_text("Kondisi lapangan?", reply_markup=_kb(KB_KONDISI))
+
+async def _prompt_ringkasan(update, ctx):
+    n = len(ctx.user_data.get("ringkasan", []))
+    if n == 0:
+        await update.message.reply_text(
+            "Ketik *ringkasan kegiatan* pertama hari ini:\n(contoh: Melakukan pembersihan Automatic Rain Gauge)",
+            parse_mode="Markdown", reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        await update.message.reply_text(f"Ketik ringkasan ke-{n+1}:", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_ringkasan_lagi(update, ctx):
+    await update.message.reply_text("Ingin tambah ringkasan lagi?", reply_markup=_kb(KB_LANJUT_SELESAI))
+
+async def _prompt_detail_jam_mulai(update, ctx):
+    n = len(ctx.user_data.get("detail_kegiatan", []))
+    if n == 0:
+        await update.message.reply_text(
+            "Sekarang masuk ke *Detail Kegiatan*.\n\nJam mulai kegiatan pertama? (contoh: `13.30`)",
+            parse_mode="Markdown", reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        await update.message.reply_text(f"Jam mulai kegiatan ke-{n+1}?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_detail_jam_selesai(update, ctx):
+    await update.message.reply_text("Jam selesai? (contoh: `14.30`)",
+                                    parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_detail_aktivitas(update, ctx):
+    await update.message.reply_text("Aktivitas / kegiatan yang dilakukan?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_detail_lokasi(update, ctx):
+    await update.message.reply_text("Lokasi kegiatan ini?", reply_markup=_kb(KB_LOKASI))
+
+async def _prompt_detail_lokasi_custom(update, ctx):
+    await update.message.reply_text("Ketik nama lokasi:", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_detail_status(update, ctx):
+    await update.message.reply_text("Status kegiatan?", reply_markup=_kb(KB_STATUS))
+
+async def _prompt_detail_foto(update, ctx):
+    await update.message.reply_text("📷 Kirim *foto kegiatan* (atau ketik `Lewati`):",
+                                    parse_mode="Markdown", reply_markup=_kb(KB_LEWATI))
+
+async def _prompt_detail_lagi(update, ctx):
+    await update.message.reply_text("Ingin tambah kegiatan lain?", reply_markup=_kb(KB_LANJUT_SELESAI))
+
+async def _prompt_kendala_ada(update, ctx):
+    await update.message.reply_text("Ada *kendala* hari ini?",
+                                    parse_mode="Markdown", reply_markup=_kb(KB_YA_TIDAK))
+
+async def _prompt_kendala_isi(update, ctx):
+    n = len(ctx.user_data.get("kendala", []))
+    msg = "Apa kendala / hambatannya?" if n == 0 else "Kendala berikutnya?"
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_kendala_dampak(update, ctx):
+    await update.message.reply_text("Apa dampaknya?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_kendala_mitigasi(update, ctx):
+    await update.message.reply_text("Tindakan mitigasi yang dilakukan?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_kendala_foto_before(update, ctx):
+    await update.message.reply_text("📷 Kirim *foto SEBELUM maintenance* (atau ketik `Lewati`):",
+                                    parse_mode="Markdown", reply_markup=_kb(KB_LEWATI))
+
+async def _prompt_kendala_foto_after(update, ctx):
+    await update.message.reply_text("📷 Kirim *foto SETELAH maintenance* (atau ketik `Lewati`):",
+                                    parse_mode="Markdown", reply_markup=_kb(KB_LEWATI))
+
+async def _prompt_kendala_lagi(update, ctx):
+    await update.message.reply_text("Ingin tambah kendala lain?", reply_markup=_kb(KB_LANJUT_SELESAI))
+
+async def _prompt_koordinasi_ada(update, ctx):
+    await update.message.reply_text("Ada *koordinasi lintas divisi* hari ini?",
+                                    parse_mode="Markdown", reply_markup=_kb(KB_YA_TIDAK))
+
+async def _prompt_koordinasi_divisi(update, ctx):
+    n = len(ctx.user_data.get("koordinasi", []))
+    msg = "Divisi terkait koordinasi?" if n == 0 else "Divisi terkait berikutnya?"
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_koordinasi_topik(update, ctx):
+    await update.message.reply_text("Topik koordinasi?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_koordinasi_tindak(update, ctx):
+    await update.message.reply_text("Tindak lanjut?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_koordinasi_status(update, ctx):
+    await update.message.reply_text("Status koordinasi?", reply_markup=_kb(KB_STATUS))
+
+async def _prompt_koordinasi_lagi(update, ctx):
+    await update.message.reply_text("Ingin tambah koordinasi lain?", reply_markup=_kb(KB_LANJUT_SELESAI))
+
+async def _prompt_rencana(update, ctx):
+    n = len(ctx.user_data.get("rencana_besok", []))
+    if n == 0:
+        await update.message.reply_text(
+            "Sekarang *Rencana Kegiatan Besok*.\n\nRencana kegiatan pertama?",
+            parse_mode="Markdown", reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        await update.message.reply_text(f"Rencana kegiatan ke-{n+1}?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_rencana_target(update, ctx):
+    await update.message.reply_text("Target / output dari rencana ini?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_rencana_pic(update, ctx):
+    await update.message.reply_text("PIC untuk rencana ini?", reply_markup=ReplyKeyboardRemove())
+
+async def _prompt_rencana_lagi(update, ctx):
+    await update.message.reply_text("Ingin tambah rencana lain?", reply_markup=_kb(KB_LANJUT_SELESAI))
+
+async def _prompt_catatan(update, ctx):
+    await update.message.reply_text(
+        "Terakhir, *catatan tambahan*? (ketik `-` jika tidak ada)",
+        parse_mode="Markdown", reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+PROMPTS = {
+    ASK_NAMA: _prompt_nama,
+    ASK_DIVISI: _prompt_divisi,
+    ASK_LOKASI: _prompt_lokasi,
+    ASK_LOKASI_CUSTOM: _prompt_lokasi_custom,
+    ASK_SHIFT: _prompt_shift,
+    ASK_CUACA: _prompt_cuaca,
+    ASK_KONDISI: _prompt_kondisi,
+    ASK_RINGKASAN: _prompt_ringkasan,
+    ASK_RINGKASAN_LAGI: _prompt_ringkasan_lagi,
+    ASK_DETAIL_JAM_MULAI: _prompt_detail_jam_mulai,
+    ASK_DETAIL_JAM_SELESAI: _prompt_detail_jam_selesai,
+    ASK_DETAIL_AKTIVITAS: _prompt_detail_aktivitas,
+    ASK_DETAIL_LOKASI: _prompt_detail_lokasi,
+    ASK_DETAIL_LOKASI_CUSTOM: _prompt_detail_lokasi_custom,
+    ASK_DETAIL_STATUS: _prompt_detail_status,
+    ASK_DETAIL_FOTO: _prompt_detail_foto,
+    ASK_DETAIL_LAGI: _prompt_detail_lagi,
+    ASK_KENDALA_ADA: _prompt_kendala_ada,
+    ASK_KENDALA_ISI: _prompt_kendala_isi,
+    ASK_KENDALA_DAMPAK: _prompt_kendala_dampak,
+    ASK_KENDALA_MITIGASI: _prompt_kendala_mitigasi,
+    ASK_KENDALA_FOTO_BEFORE: _prompt_kendala_foto_before,
+    ASK_KENDALA_FOTO_AFTER: _prompt_kendala_foto_after,
+    ASK_KENDALA_LAGI: _prompt_kendala_lagi,
+    ASK_KOORDINASI_ADA: _prompt_koordinasi_ada,
+    ASK_KOORDINASI_DIVISI: _prompt_koordinasi_divisi,
+    ASK_KOORDINASI_TOPIK: _prompt_koordinasi_topik,
+    ASK_KOORDINASI_TINDAK: _prompt_koordinasi_tindak,
+    ASK_KOORDINASI_STATUS: _prompt_koordinasi_status,
+    ASK_KOORDINASI_LAGI: _prompt_koordinasi_lagi,
+    ASK_RENCANA: _prompt_rencana,
+    ASK_RENCANA_TARGET: _prompt_rencana_target,
+    ASK_RENCANA_PIC: _prompt_rencana_pic,
+    ASK_RENCANA_LAGI: _prompt_rencana_lagi,
+    ASK_CATATAN: _prompt_catatan,
+}
+
+
+async def cmd_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Kembali ke langkah pengisian sebelumnya."""
+    if not _guard(update):
+        return
+    hist = ctx.user_data.get("_history", [])
+    if not hist:
+        await update.message.reply_text(
+            "Tidak ada langkah sebelumnya untuk kembali. (Gunakan /cancel untuk batal total.)"
+        )
+        return None  # tetap di state saat ini
+    state, snap = hist.pop()
+    # restore semua field kecuali _history
+    for k in list(ctx.user_data.keys()):
+        if k != "_history":
+            del ctx.user_data[k]
+    ctx.user_data.update(snap)
+    await update.message.reply_text("↩️ Kembali ke langkah sebelumnya.")
+    prompt = PROMPTS.get(state)
+    if prompt:
+        await prompt(update, ctx)
+    return state
+
+
 def build_conversation_handler() -> ConversationHandler:
-    T = lambda f: MessageHandler(filters.TEXT & ~filters.COMMAND, f)
-    P = lambda f: MessageHandler(filters.PHOTO, f)
+    def Ts(state, fn):
+        async def wrapper(update, ctx):
+            _snapshot(ctx, state)
+            return await fn(update, ctx)
+        return MessageHandler(filters.TEXT & ~filters.COMMAND, wrapper)
+
+    def Ps(state, fn):
+        async def wrapper(update, ctx):
+            _snapshot(ctx, state)
+            return await fn(update, ctx)
+        return MessageHandler(filters.PHOTO, wrapper)
 
     return ConversationHandler(
         entry_points=[CommandHandler("laporan", start), CommandHandler("start", start)],
         states={
-            ASK_NAMA: [T(ask_nama)],
-            ASK_DIVISI: [T(ask_divisi)],
-            ASK_LOKASI: [T(ask_lokasi)],
-            ASK_LOKASI_CUSTOM: [T(ask_lokasi_custom)],
-            ASK_SHIFT: [T(ask_shift)],
-            ASK_CUACA: [T(ask_cuaca)],
-            ASK_KONDISI: [T(ask_kondisi)],
-            ASK_RINGKASAN: [T(ask_ringkasan)],
-            ASK_RINGKASAN_LAGI: [T(ask_ringkasan_lagi)],
-            ASK_DETAIL_JAM_MULAI: [T(ask_detail_jam_mulai)],
-            ASK_DETAIL_JAM_SELESAI: [T(ask_detail_jam_selesai)],
-            ASK_DETAIL_AKTIVITAS: [T(ask_detail_aktivitas)],
-            ASK_DETAIL_LOKASI: [T(ask_detail_lokasi)],
-            ASK_DETAIL_LOKASI_CUSTOM: [T(ask_detail_lokasi_custom)],
-            ASK_DETAIL_STATUS: [T(ask_detail_status)],
-            ASK_DETAIL_FOTO: [P(ask_detail_foto_photo), T(ask_detail_foto_skip)],
-            ASK_DETAIL_LAGI: [T(ask_detail_lagi)],
-            ASK_KENDALA_ADA: [T(ask_kendala_ada)],
-            ASK_KENDALA_ISI: [T(ask_kendala_isi)],
-            ASK_KENDALA_DAMPAK: [T(ask_kendala_dampak)],
-            ASK_KENDALA_MITIGASI: [T(ask_kendala_mitigasi)],
-            ASK_KENDALA_FOTO_BEFORE: [P(ask_kendala_foto_before_photo), T(ask_kendala_foto_before_skip)],
-            ASK_KENDALA_FOTO_AFTER: [P(ask_kendala_foto_after_photo), T(ask_kendala_foto_after_skip)],
-            ASK_KENDALA_LAGI: [T(ask_kendala_lagi)],
-            ASK_KOORDINASI_ADA: [T(ask_koordinasi_ada)],
-            ASK_KOORDINASI_DIVISI: [T(ask_koordinasi_divisi)],
-            ASK_KOORDINASI_TOPIK: [T(ask_koordinasi_topik)],
-            ASK_KOORDINASI_TINDAK: [T(ask_koordinasi_tindak)],
-            ASK_KOORDINASI_STATUS: [T(ask_koordinasi_status)],
-            ASK_KOORDINASI_LAGI: [T(ask_koordinasi_lagi)],
-            ASK_RENCANA: [T(ask_rencana)],
-            ASK_RENCANA_TARGET: [T(ask_rencana_target)],
-            ASK_RENCANA_PIC: [T(ask_rencana_pic)],
-            ASK_RENCANA_LAGI: [T(ask_rencana_lagi)],
-            ASK_CATATAN: [T(ask_catatan)],
+            ASK_NAMA: [Ts(ASK_NAMA, ask_nama)],
+            ASK_DIVISI: [Ts(ASK_DIVISI, ask_divisi)],
+            ASK_LOKASI: [Ts(ASK_LOKASI, ask_lokasi)],
+            ASK_LOKASI_CUSTOM: [Ts(ASK_LOKASI_CUSTOM, ask_lokasi_custom)],
+            ASK_SHIFT: [Ts(ASK_SHIFT, ask_shift)],
+            ASK_CUACA: [Ts(ASK_CUACA, ask_cuaca)],
+            ASK_KONDISI: [Ts(ASK_KONDISI, ask_kondisi)],
+            ASK_RINGKASAN: [Ts(ASK_RINGKASAN, ask_ringkasan)],
+            ASK_RINGKASAN_LAGI: [Ts(ASK_RINGKASAN_LAGI, ask_ringkasan_lagi)],
+            ASK_DETAIL_JAM_MULAI: [Ts(ASK_DETAIL_JAM_MULAI, ask_detail_jam_mulai)],
+            ASK_DETAIL_JAM_SELESAI: [Ts(ASK_DETAIL_JAM_SELESAI, ask_detail_jam_selesai)],
+            ASK_DETAIL_AKTIVITAS: [Ts(ASK_DETAIL_AKTIVITAS, ask_detail_aktivitas)],
+            ASK_DETAIL_LOKASI: [Ts(ASK_DETAIL_LOKASI, ask_detail_lokasi)],
+            ASK_DETAIL_LOKASI_CUSTOM: [Ts(ASK_DETAIL_LOKASI_CUSTOM, ask_detail_lokasi_custom)],
+            ASK_DETAIL_STATUS: [Ts(ASK_DETAIL_STATUS, ask_detail_status)],
+            ASK_DETAIL_FOTO: [Ps(ASK_DETAIL_FOTO, ask_detail_foto_photo),
+                              Ts(ASK_DETAIL_FOTO, ask_detail_foto_skip)],
+            ASK_DETAIL_LAGI: [Ts(ASK_DETAIL_LAGI, ask_detail_lagi)],
+            ASK_KENDALA_ADA: [Ts(ASK_KENDALA_ADA, ask_kendala_ada)],
+            ASK_KENDALA_ISI: [Ts(ASK_KENDALA_ISI, ask_kendala_isi)],
+            ASK_KENDALA_DAMPAK: [Ts(ASK_KENDALA_DAMPAK, ask_kendala_dampak)],
+            ASK_KENDALA_MITIGASI: [Ts(ASK_KENDALA_MITIGASI, ask_kendala_mitigasi)],
+            ASK_KENDALA_FOTO_BEFORE: [Ps(ASK_KENDALA_FOTO_BEFORE, ask_kendala_foto_before_photo),
+                                      Ts(ASK_KENDALA_FOTO_BEFORE, ask_kendala_foto_before_skip)],
+            ASK_KENDALA_FOTO_AFTER: [Ps(ASK_KENDALA_FOTO_AFTER, ask_kendala_foto_after_photo),
+                                     Ts(ASK_KENDALA_FOTO_AFTER, ask_kendala_foto_after_skip)],
+            ASK_KENDALA_LAGI: [Ts(ASK_KENDALA_LAGI, ask_kendala_lagi)],
+            ASK_KOORDINASI_ADA: [Ts(ASK_KOORDINASI_ADA, ask_koordinasi_ada)],
+            ASK_KOORDINASI_DIVISI: [Ts(ASK_KOORDINASI_DIVISI, ask_koordinasi_divisi)],
+            ASK_KOORDINASI_TOPIK: [Ts(ASK_KOORDINASI_TOPIK, ask_koordinasi_topik)],
+            ASK_KOORDINASI_TINDAK: [Ts(ASK_KOORDINASI_TINDAK, ask_koordinasi_tindak)],
+            ASK_KOORDINASI_STATUS: [Ts(ASK_KOORDINASI_STATUS, ask_koordinasi_status)],
+            ASK_KOORDINASI_LAGI: [Ts(ASK_KOORDINASI_LAGI, ask_koordinasi_lagi)],
+            ASK_RENCANA: [Ts(ASK_RENCANA, ask_rencana)],
+            ASK_RENCANA_TARGET: [Ts(ASK_RENCANA_TARGET, ask_rencana_target)],
+            ASK_RENCANA_PIC: [Ts(ASK_RENCANA_PIC, ask_rencana_pic)],
+            ASK_RENCANA_LAGI: [Ts(ASK_RENCANA_LAGI, ask_rencana_lagi)],
+            ASK_CATATAN: [Ts(ASK_CATATAN, ask_catatan)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CommandHandler("back", cmd_back),
+        ],
         allow_reentry=True,
     )
