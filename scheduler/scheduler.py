@@ -39,11 +39,11 @@ def start_scheduler(app):
     scheduler = BackgroundScheduler(timezone=TIMEZONE)
     scheduler.add_job(
         _send_weekly_report,
-        trigger=CronTrigger(day_of_week="sat", hour=12, minute=0, timezone=TIMEZONE),
+        trigger=CronTrigger(day_of_week="sat", hour=15, minute=0, timezone=TIMEZONE),
         args=[app],
         id="weekly_report",
         replace_existing=True,
     )
     scheduler.start()
-    logger.info(f"Scheduler aktif — weekly report setiap Sabtu 12.00 {TIMEZONE}")
+    logger.info(f"Scheduler aktif — weekly report setiap Sabtu 15.00 {TIMEZONE}")
     return scheduler
